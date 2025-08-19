@@ -1,0 +1,48 @@
+services:
+  mitmproxy:    
+    image: "mitmproxy/mitmproxy:${MITMPROXY_TAG:-latest}"
+    container_name: mitmproxy
+    entrypoint: ["/bin/sh", "/home/mitmproxy/entrypoint.sh"] 
+    ports:
+      - "8080:8080" # host port for convenience
+    networks:
+      - pocnet
+    volumes:
+      - ./configs/mitmproxy/entrypoint.sh:/home/mitmproxy/entrypoint.sh
+      - ./configs/mitmproxy/runtime:/home/mitmproxy/.mitmproxy
+      - ./certificates:/shared_ca
+      - ./captures:/captures
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -tln | grep -q ':8080'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  squid:
+    build:
+      context: ./docker/squid
+      dockerfile: Dockerfile
+    image: squid_ssl_custom:latest
+    container_name: squid
+    entrypoint: ["/bin/sh", "/home/squid/entrypoint.sh"] 
+    ports:
+      - "3128:3128" 
+    networks:
+      - pocnet
+    volumes:
+      - ./configs/squid/entrypoint.sh:/home/squid/entrypoint.sh
+      - ./configs/squid/templates/ssl_bump_only.conf:/etc/squid/squid.conf
+      - ./logs/squid:/var/log/squid
+      - ./certificates:/shared_ca
+      - ./captures:/captures
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -tln | grep -q ':3128'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  pocnet:
+    driver: bridge
