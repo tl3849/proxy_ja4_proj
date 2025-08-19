@@ -46,6 +46,11 @@ PROXIES = [
         "name": "mitmproxy",
         "proxy_port": 8080,
         "description": "mitmproxy with TLS interception"
+    },
+    {
+        "name": "burp",
+        "proxy_port": 8081,
+        "description": "Burp Suite proxy"
     }
 ]
 

@@ -20,9 +20,8 @@ class containerManager:
         try:         # method
             self.mitm_container = self.docker_client.containers.get("mitmproxy")
             self.squid_container = self.docker_client.containers.get("squid")
-            # self.burp_container = self.docker_client.containers.get("burp")
-            # self.client_container = self.docker_client.containers.get("client")
-            self.proxy_containers = [self.mitm_container, self.squid_container] #, self.burp_container]
+            self.burp_container = self.docker_client.containers.get("burp")
+            self.proxy_containers = [self.mitm_container, self.squid_container, self.burp_container]
         except docker.errors.NotFound as e:
             log(f"Container not found: {e}")
             return False
