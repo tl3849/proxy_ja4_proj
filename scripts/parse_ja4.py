@@ -7,8 +7,8 @@ import json
 
 LOGDIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 LOGFILE = os.path.join(LOGDIR, "parse_ja4.log")
-PCAP_FILE = "./captures/test.pcap"
-JA4_JSON = "./captures/ja4_results.json"
+CAPTURES_DIR = "./captures"
+JA4_JSON = os.path.join(CAPTURES_DIR, "ja4_results.json")
 
 def log(msg):
     if not os.path.exists(LOGDIR):
@@ -45,6 +45,21 @@ def is_python_ja4(cmd):
         log(f"Error detecting ja4 CLI type: {e}")
         return False
 
+def list_pcap_files():
+    try:
+        if not os.path.isdir(CAPTURES_DIR):
+            log(f"Captures directory not found: {CAPTURES_DIR}")
+            return []
+        files = []
+        for name in os.listdir(CAPTURES_DIR):
+            path = os.path.join(CAPTURES_DIR, name)
+            if os.path.isfile(path) and name.lower().endswith((".pcap", ".pcapng")):
+                files.append(path)
+        return sorted(files)
+    except Exception as e:
+        log(f"Error listing pcap files: {e}")
+        return []
+
 def load_manifest():
     try:
         with open("./captures/manifest.json", "r") as f:
@@ -52,64 +67,79 @@ def load_manifest():
     except Exception:
         return {}
 
-def parse_ja4():
-    if not os.path.exists(PCAP_FILE):
-        log(f"{PCAP_FILE} not found.")
-        sys.exit(1)
-    ja4_cmd = get_ja4_command()
-    if is_python_ja4(ja4_cmd):
-        # Python version: no subcommand
-        cmd = ja4_cmd + [PCAP_FILE, "--json"]
-    else:
-        # Go version: use parse-pcap subcommand
-        cmd = ja4_cmd + ["parse-pcap", PCAP_FILE, "--json"]
-    result = subprocess.run(
-        cmd,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE
-    )
-    if result.returncode != 0:
-        log("ja4 parse failed.")
-        log(result.stderr.decode())
-        sys.exit(1)
-    
-    # Parse JSON Lines output from ja4 CLI
-    ja4_data = []
-    stdout_text = result.stdout.decode()
-    
-    # Split by lines and parse each complete JSON object
+def parse_stdout_json_objects(stdout_text):
+    ja4_objects = []
     lines = stdout_text.strip().split('\n')
     current_json = ""
-    
     for line in lines:
         line = line.strip()
         if not line:
             continue
-            
         current_json += line
-        
-        # Try to parse the accumulated JSON
         try:
-            session_data = json.loads(current_json)
-            ja4_data.append(session_data)
-            current_json = ""  # Reset for next object
+            obj = json.loads(current_json)
+            ja4_objects.append(obj)
+            current_json = ""
         except json.JSONDecodeError:
-            # Incomplete JSON, continue accumulating
             continue
-    
-    # Add proxy info to JA4 results
+    return ja4_objects
+
+def parse_ja4():
+    pcap_files = list_pcap_files()
+    if not pcap_files:
+        log("No .pcap files found to parse.")
+        sys.exit(1)
+
+    ja4_cmd = get_ja4_command()
+    python_cli = is_python_ja4(ja4_cmd)
+
+    all_results = []
     manifest = load_manifest()
-    try:
-        for sess in ja4_data:
-            # Try to match session to manifest entry by IP/port or other means if possible
-            # For now, just attach manifest meta globally
+
+    for pcap_path in pcap_files:
+        base_name = os.path.basename(pcap_path)
+        log(f"Parsing JA4 for {base_name}")
+        if python_cli:
+            cmd = ja4_cmd + [pcap_path, "--json"]
+        else:
+            cmd = ja4_cmd + ["parse-pcap", pcap_path, "--json"]
+
+        result = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        if result.returncode != 0:
+            log(f"ja4 parse failed for {base_name}.")
+            log(result.stderr.decode())
+            continue
+
+        stdout_text = result.stdout.decode()
+        sessions = parse_stdout_json_objects(stdout_text)
+
+        parsed_at_utc = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            mtime = os.path.getmtime(pcap_path)
+            capture_mtime_utc = datetime.utcfromtimestamp(mtime).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            capture_mtime_utc = None
+
+        for sess in sessions:
+            sess["source_pcap"] = base_name
+            sess["source_pcap_path"] = pcap_path
+            sess["parsed_at_utc"] = parsed_at_utc
+            if capture_mtime_utc:
+                sess["capture_file_mtime_utc"] = capture_mtime_utc
             sess["manifest"] = manifest
-        
+            all_results.append(sess)
+
+    try:
         with open(JA4_JSON, "w") as f:
-            json.dump(ja4_data, f, indent=2)
-        log("JA4 results annotated with manifest info.")
+            json.dump(all_results, f, indent=2)
+        log("JA4 results annotated and written for all pcaps.")
     except Exception as e:
-        log(f"Could not annotate JA4 results: {e}")
-    
+        log(f"Failed writing JA4 results: {e}")
+
     log(f"JA4 results written to {JA4_JSON}")
     log(f"parse_ja4.py finished. See {LOGFILE} for details.")
 

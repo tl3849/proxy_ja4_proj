@@ -33,8 +33,6 @@ def ensure_directory_structure():
         LOGDIR,
         SHARED_CA_DIR,
         os.path.join(PROJECT_ROOT, "captures"),
-        os.path.join(PROJECT_ROOT, "captures", "mitmproxy"),
-        os.path.join(PROJECT_ROOT, "captures", "squid"),
         os.path.join(PROJECT_ROOT, "configs", "squid", "runtime"),
         os.path.join(PROJECT_ROOT, "configs", "squid", "templates"),
         os.path.join(PROJECT_ROOT, "configs", "mitmproxy", "runtime"),
